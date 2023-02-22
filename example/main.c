@@ -8,6 +8,7 @@
 #include <arpa/inet.h>
 #include <errno.h>
 #include <assert.h>
+#include <sys/ioctl.h>
 
 #include "ff_config.h"
 #include "ff_api.h"
@@ -25,7 +26,7 @@ int sockfd;
 int sockfd6;
 #endif
 
-char html[] = 
+char html[] =
 "HTTP/1.1 200 OK\r\n"
 "Server: F-Stack\r\n"
 "Date: Sat, 25 Feb 2017 09:26:33 GMT\r\n"
@@ -63,8 +64,14 @@ char html[] =
 int loop(void *arg)
 {
     /* Wait for events to happen */
-    unsigned nevents = ff_kevent(kq, NULL, 0, events, MAX_EVENTS, NULL);
-    unsigned i;
+    int nevents = ff_kevent(kq, NULL, 0, events, MAX_EVENTS, NULL);
+    int i;
+
+    if (nevents < 0) {
+        printf("ff_kevent failed:%d, %s\n", errno,
+                        strerror(errno));
+        return -1;
+    }
 
     for (i = 0; i < nevents; ++i) {
         struct kevent event = events[i];
@@ -105,22 +112,30 @@ int loop(void *arg)
         else if (event.filter == EVFILT_READ) {
             printf("ff_kevent READ\n");
             char buf[256];
-            size_t readlen = ff_read(clientfd, buf, sizeof(buf));
-            if (readlen > 0) {
-                printf("[helloworld] ff_read: %s\n", buf);
+            ssize_t readlen = ff_read(clientfd, buf, sizeof(buf));
+            ssize_t writelen = ff_write(clientfd, html, sizeof(html) - 1);
+            if (writelen < 0){
+                printf("ff_write failed:%d, %s\n", errno,
+                    strerror(errno));
+                ff_close(clientfd);
             }
-            ff_write(clientfd, html, sizeof(html) - 1);
         } else {
             printf("unknown event: %8.8X\n", event.flags);
         }
     }
+
+    return 0;
 }
 
 int main(int argc, char * argv[])
 {
     ff_init(argc, argv);
 
-    assert((kq = ff_kqueue()) > 0);
+    kq = ff_kqueue();
+    if (kq < 0) {
+        printf("ff_kqueue failed, errno:%d, %s\n", errno, strerror(errno));
+        exit(1);
+    }
 
     int ret;
     sockfd = ff_socket(AF_INET, SOCK_STREAM, 0);
@@ -131,6 +146,9 @@ int main(int argc, char * argv[])
 
     const char* ip_addr_str = "10.13.100.105";
     u_int16_t port = 10080;
+    /* Set non blocking */
+    int on = 1;
+    ff_ioctl(sockfd, FIONBIO, &on);
 
     struct sockaddr_in my_addr;
     bzero(&my_addr, sizeof(my_addr));
@@ -198,7 +216,11 @@ int main(int argc, char * argv[])
     }
 
     EV_SET(&kevSet, sockfd6, EVFILT_READ, EV_ADD, 0, MAX_EVENTS, NULL);
-    ff_kevent(kq, &kevSet, 1, NULL, 0, NULL);
+    ret = ff_kevent(kq, &kevSet, 1, NULL, 0, NULL);
+    if (ret < 0) {
+        printf("ff_kevent failed:%d, %s\n", errno, strerror(errno));
+        exit(1);
+    }
 #endif
 
     ff_run(loop, NULL);
