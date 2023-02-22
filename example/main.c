@@ -48,12 +48,15 @@ char html[] =
 "</style>\r\n"
 "</head>\r\n"
 "<body>\r\n"
-"<h1>Welcome to F-Stack!</h1>\r\n"
+"<h1>Attention!</h1>\r\n"
+"<p> Instead of this markup we can send any data or struct as reply.\r\n"
 "\r\n"
+"<footer>\r\n"
 "<p>For online documentation and support please refer to\r\n"
 "<a href=\"http://F-Stack.org/\">F-Stack.org</a>.<br/>\r\n"
 "\r\n"
 "<p><em>Thank you for using F-Stack.</em></p>\r\n"
+"</footer>\r\n"
 "</body>\r\n"
 "</html>";
 
@@ -71,35 +74,41 @@ int loop(void *arg)
         if (event.flags & EV_EOF) {
             /* Simply close socket */
             ff_close(clientfd);
-#ifdef INET6
-        } else if (clientfd == sockfd || clientfd == sockfd6) {
-#else
-        } else if (clientfd == sockfd) {
-#endif
-            int available = (int)event.data;
-            do {
-                int nclientfd = ff_accept(clientfd, NULL, NULL);
-                if (nclientfd < 0) {
-                    printf("ff_accept failed:%d, %s\n", errno,
-                        strerror(errno));
-                    break;
-                }
+            printf("[helloworld] close event\n");
 
-                /* Add to event list */
-                EV_SET(&kevSet, nclientfd, EVFILT_READ, EV_ADD, 0, 0, NULL);
+        } 
+        // else if (clientfd == sockfd || clientfd == sockfd6) {
+        // else if (clientfd == sockfd) {
 
-                if(ff_kevent(kq, &kevSet, 1, NULL, 0, NULL) < 0) {
-                    printf("ff_kevent error:%d, %s\n", errno,
-                        strerror(errno));
-                    return -1;
-                }
+//             //printf("[helloworld] client accept event\n");
+//             int available = (int)event.data;
+//             do {
+//                 int nclientfd = ff_accept(clientfd, NULL, NULL);
+//                 if (nclientfd < 0) {
+//                     printf("ff_accept failed:%d, %s\n", errno,
+//                         strerror(errno));
+//                     break;
+//                 }
 
-                available--;
-            } while (available);
-        } else if (event.filter == EVFILT_READ) {
+//                 /* Add to event list */
+//                 EV_SET(&kevSet, nclientfd, EVFILT_READ, EV_ADD, 0, 0, NULL);
+
+//                 if(ff_kevent(kq, &kevSet, 1, NULL, 0, NULL) < 0) {
+//                     printf("ff_kevent error:%d, %s\n", errno,
+//                         strerror(errno));
+//                     return -1;
+//                 }
+
+//                 available--;
+//             } while (available);
+        // } 
+        else if (event.filter == EVFILT_READ) {
+            printf("ff_kevent READ\n");
             char buf[256];
             size_t readlen = ff_read(clientfd, buf, sizeof(buf));
-
+            if (readlen > 0) {
+                printf("[helloworld] ff_read: %s\n", buf);
+            }
             ff_write(clientfd, html, sizeof(html) - 1);
         } else {
             printf("unknown event: %8.8X\n", event.flags);
@@ -113,33 +122,55 @@ int main(int argc, char * argv[])
 
     assert((kq = ff_kqueue()) > 0);
 
+    int ret;
     sockfd = ff_socket(AF_INET, SOCK_STREAM, 0);
     if (sockfd < 0) {
         printf("ff_socket failed, sockfd:%d, errno:%d, %s\n", sockfd, errno, strerror(errno));
         exit(1);
     }
 
+    const char* ip_addr_str = "10.13.100.105";
+    u_int16_t port = 10080;
+
     struct sockaddr_in my_addr;
     bzero(&my_addr, sizeof(my_addr));
     my_addr.sin_family = AF_INET;
-    my_addr.sin_port = htons(80);
-    my_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    my_addr.sin_port = htons(port);
+    inet_pton(AF_INET, ip_addr_str, &my_addr.sin_addr.s_addr); 
+        
+    // int ret = ff_bind(sockfd, (struct linux_sockaddr *)&my_addr, sizeof(my_addr));
+    // if (ret < 0) {
+    //     printf("ff_bind failed, sockfd:%d, errno:%d, %s\n", sockfd, errno, strerror(errno));
+    //     exit(1);
+    // }
 
-    int ret = ff_bind(sockfd, (struct linux_sockaddr *)&my_addr, sizeof(my_addr));
+    // char ip[INET_ADDRSTRLEN];
+    // inet_ntop(AF_INET, &(my_addr.sin_addr), ip, INET_ADDRSTRLEN);
+    // printf("[helloworld] IP address: %s\n", ip);
+
+    // ret = ff_listen(sockfd, MAX_EVENTS);
+    // if (ret < 0) {
+    //     printf("ff_listen failed, sockfd:%d, errno:%d, %s\n", sockfd, errno, strerror(errno));
+    //     exit(1);
+    // }
+
+    ret = ff_connect(sockfd, (struct linux_sockaddr *)&my_addr, sizeof(my_addr));
     if (ret < 0) {
-        printf("ff_bind failed, sockfd:%d, errno:%d, %s\n", sockfd, errno, strerror(errno));
+        printf("ff_connect failed, sockfd:%d, errno:%d, %s\n", sockfd, errno, strerror(errno));
         exit(1);
     }
 
-     ret = ff_listen(sockfd, MAX_EVENTS);
-    if (ret < 0) {
-        printf("ff_listen failed, sockfd:%d, errno:%d, %s\n", sockfd, errno, strerror(errno));
-        exit(1);
-    }
+
+    // ret = ff_write(sockfd, html, sizeof(html) - 1);
+    // if (ret < 0) {
+    //     printf("ff_write failed, sockfd:%d, errno:%d, %s\n", sockfd, errno, strerror(errno));
+    //     exit(1);
+    // }
 
     EV_SET(&kevSet, sockfd, EVFILT_READ, EV_ADD, 0, MAX_EVENTS, NULL);
     /* Update kqueue */
     ff_kevent(kq, &kevSet, 1, NULL, 0, NULL);
+    printf("[hellworld] sockfd registered with epoll\n");
 
 #ifdef INET6
     sockfd6 = ff_socket(AF_INET6, SOCK_STREAM, 0);
