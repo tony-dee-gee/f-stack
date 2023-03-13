@@ -11,13 +11,14 @@
 #include <errno.h>
 #include <assert.h>
 #include <openssl/md5.h>
+#include <getopt.h>
 
 #include "ff_config.h"
 #include "ff_api.h"
 #include "ff_epoll.h"
 
 #define MAX_EVENTS 512
-#define BOX 10379
+#define BOX 10437
 #define BROKER "90272"
 #define MAX_BYTES 2700
 
@@ -47,6 +48,7 @@ typedef struct MESSAGE_HEADER
     // MESSAGE_HEADER(){}
 }MESSAGE_HEADER;
 
+#pragma pack(1)
 typedef struct 
 {
     MESSAGE_HEADER MESSAGE_HEADER_ ;
@@ -55,6 +57,7 @@ typedef struct
     char Filler[1];
 }MS_GR_REQUEST;
 
+#pragma pack(1)
 typedef struct {
     MESSAGE_HEADER MESSAGE_HEADER_;
     short BoxID;
@@ -65,7 +68,7 @@ typedef struct {
     char SessionKey[8];   
 }MS_GR_RESPONSE;
 
-
+#pragma pack(1)
 typedef struct
 {
     short length;
@@ -88,14 +91,6 @@ packet_init(packet * _packet, MS_GR_REQUEST pkt_)
     MD5(pkt_bytes, pkt_length, _packet->md5checksum);  
 }
 
-char smalltext[] = 
-    "oπo connected"
-    "\r\n";
-
-char largetext[] =
-    "blah blah blah"
-    "\r\n";
-
 bool connected = false;
 
 int loop(void * arg)
@@ -107,7 +102,7 @@ int loop(void * arg)
     
     for (i = 0; i < nevents; ++i)
     {
-        
+        printf("event %d occured\n", i);   
         if (events[i].events & EPOLLERR)
         {
             /* Simply close socket */
@@ -167,6 +162,13 @@ int loop(void * arg)
 
 int main(int argc, char *argv[])
 {   
+
+    // printf("args: %d\n", argc);
+    // for(int i = 0; i < argc; i++){
+    //     printf("options: %s\t", argv[i]);
+    //     if((i&1) == 1) printf("\n"); 
+    // }
+
     int ret = 0;
     ff_init(argc, argv);
 
@@ -181,26 +183,27 @@ int main(int argc, char *argv[])
     int on = 1;
     ff_ioctl(sockfd, FIONBIO, &on); // set socket to 0:blocking 1:nonblocking
     
+    int opt;
+    char *inst = "10.244.176.91"; 
+    char *ip_addr_server = "172.19.245.107";
+    uint16_t ip_addr_port = 10263;
+
     /* connect_local () */
 
     int optval = 1;
-    const char *inst = "10.244.176.92";
-
     struct sockaddr_in local_interface;
-    inet_aton(inst, &(local_interface.sin_addr));
+    bzero(&local_interface, sizeof(local_interface));
     local_interface.sin_family = AF_INET;
+    inet_pton(AF_INET, inst, &local_interface.sin_addr.s_addr);
 
-    ff_setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, (const void *)&optval, (socklen_t) sizeof(optval));
-    ret = ff_bind(sockfd, (const struct linux_sockaddr*) &local_interface, (socklen_t)sizeof(local_interface));
+    ret = ff_bind(sockfd, (const struct linux_sockaddr*) &local_interface, sizeof(local_interface));
     if (ret < 0)
     {
         printf("ff_bind failed sockfd:%d, errno:%d, %s\n", sockfd, errno, strerror(errno));
+        exit(1);
     }
     
     /* connect_server () */
-
-    const char *ip_addr_server = "172.19.245.107";
-    uint16_t ip_addr_port = 10263;
 
     struct sockaddr_in serv_addr;
     bzero(&serv_addr, sizeof(serv_addr));
@@ -208,6 +211,7 @@ int main(int argc, char *argv[])
     serv_addr.sin_port = htons(ip_addr_port);
     // my_addr.sin_addr.s_addr = htonl(INADDR_ANY);
     inet_pton(AF_INET, ip_addr_server, &serv_addr.sin_addr.s_addr);
+
 
     assert((epfd = ff_epoll_create(0)) > 0);
     ev.data.fd = sockfd;
@@ -218,6 +222,7 @@ int main(int argc, char *argv[])
     if (ret < 0 && errno != EINPROGRESS)
     {
         printf("ff_connect failed sockfd:%d, errno:%d, %s\n", sockfd, errno, strerror(errno));
+        exit(1);
     }
    
     seq = 0;
